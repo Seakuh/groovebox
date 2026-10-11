@@ -1,0 +1,10 @@
+{
+  "name": "groovebox",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Drum Machine, Synth und Effekte im Browser, spielbar mit Tastatur und Korg nanoKONTROL2",
+  "scripts": {
+    "start": "node server.js"
+  }
+}
