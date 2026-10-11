@@ -11,6 +11,7 @@ const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '
 const LOCAL = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
 const clients = new Set();
 let last = null;
+let svgs = '[]';
 
 // Echte WLAN/LAN-Adapter zuerst, Docker-/VM-Bridges raus
 const lanUrls = () => {
@@ -32,6 +33,7 @@ http.createServer(async (req, res) => {
   if (url.pathname === '/events') {
     res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
     res.write('retry: 1000\n\n');
+    res.write(`event: svg\ndata: ${svgs}\n\n`);
     if (last) res.write(`data: ${last}\n\n`);
     clients.add(res);
     req.on('close', () => clients.delete(res));
@@ -46,6 +48,18 @@ http.createServer(async (req, res) => {
     req.on('end', () => {
       last = body.replace(/\n/g, '');
       for (const c of clients) c.write(`data: ${last}\n\n`);
+      res.writeHead(204); res.end();
+    });
+    return;
+  }
+
+  if (url.pathname === '/svg' && req.method === 'POST') {
+    if (!LOCAL.has(req.socket.remoteAddress)) { res.writeHead(403); return res.end(); }
+    let body = '';
+    req.on('data', c => { body += c; if (body.length > 8_000_000) req.destroy(); });
+    req.on('end', () => {
+      try { svgs = JSON.stringify(JSON.parse(body)); } catch { res.writeHead(400); return res.end(); }
+      for (const c of clients) c.write(`event: svg\ndata: ${svgs}\n\n`);
       res.writeHead(204); res.end();
     });
     return;

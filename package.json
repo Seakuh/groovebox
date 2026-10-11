@@ -3,8 +3,30 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Drum Machine, Synth und Effekte im Browser, spielbar mit Tastatur und Korg nanoKONTROL2",
+  "description": "Browser groovebox: drum machine, synth and effects, playable with your computer keyboard and a Korg nanoKONTROL2, with audio-reactive shaders, 3D SVGs and a fullscreen view for your local network",
   "scripts": {
     "start": "node server.js"
+  },
+  "license": "MIT",
+  "author": "Daniel Grimm (https://github.com/Seakuh)",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Seakuh/groovebox.git"
+  },
+  "homepage": "https://seakuh.github.io/groovebox/",
+  "keywords": [
+    "drum-machine",
+    "synthesizer",
+    "web-audio",
+    "web-midi",
+    "nanokontrol2",
+    "step-sequencer",
+    "webgl",
+    "shader",
+    "threejs",
+    "live-coding-visuals"
+  ],
+  "engines": {
+    "node": ">=18"
   }
 }

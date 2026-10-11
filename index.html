@@ -148,6 +148,9 @@ details td{padding:2px 14px 2px 0;vertical-align:top}
 .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--accent);color:var(--accent-ink);padding:10px 18px;border-radius:999px;font-weight:600;z-index:5;opacity:0;transition:opacity .2s ease-out;pointer-events:none}
 .toast.show{opacity:1}
 .start[hidden]{display:none}
+#fx3d{position:fixed;inset:0;width:100%;height:100%;z-index:0;display:block;pointer-events:none}
+.drop{position:fixed;inset:16px;z-index:7;display:flex;align-items:center;justify-content:center;border:3px dashed var(--accent-hi);border-radius:var(--radius-lg);background:rgb(20 17 14 / .6);font-family:var(--display);font-size:22px;color:var(--accent-hi);pointer-events:none}
+.drop[hidden]{display:none}
 .start{position:fixed;inset:0;z-index:4;display:flex;align-items:center;justify-content:center;background:rgb(20 17 14 / .55);cursor:pointer}
 .start div{font-family:var(--display);font-size:20px;text-align:center;line-height:1.6;padding:16px}
 .start small{display:block;font-family:var(--font);font-size:13px;color:var(--muted)}
@@ -162,6 +165,9 @@ details td{padding:2px 14px 2px 0;vertical-align:top}
 </head>
 <body>
 <canvas id="bg"></canvas>
+<canvas id="fx3d"></canvas>
+<div class="drop" id="drop" hidden>SVG loslassen – wird 3D</div>
+<input type="file" id="svgFile" accept=".svg,image/svg+xml" multiple hidden>
 <div class="start" id="start"><div>Taste drücken oder klicken<small>startet den Sound</small></div></div>
 
 <main class="app">
@@ -190,6 +196,8 @@ details td{padding:2px 14px 2px 0;vertical-align:top}
       <button id="save">Speichern</button>
     </div>
     <span class="spacer"></span>
+    <button id="svgAdd" title="Oder SVG-Datei einfach ins Fenster ziehen">SVG 3D +</button>
+    <button id="svgClear" hidden>3D leeren</button>
     <button id="share">Teilen</button>
     <button id="fs">Vollbild</button>
     <button id="shader">Shader: Plasma</button>
@@ -751,7 +759,7 @@ const DE = { KeyZ: 'Y', KeyY: 'Z', Semicolon: 'Ö', Quote: 'Ä', BracketLeft: '�
 let LM = null;
 const kl = code => {
   const k = LM?.get(code);
-  if (k) return k.toUpperCase();
+  if (k) return k === 'ß' ? k : k.toUpperCase();
   return DE[code] || code.replace(/^Key|^Digit/, '');
 };
 const K = code => `<kbd data-code="${code}">${kl(code)}</kbd>`;
@@ -1239,8 +1247,58 @@ function frame(ts) {
     level = level * .85 + (s / 11 / 255) * .15;
   }
   kickPulse *= .9;
+  window.gbxFx = [level, kickPulse];
   drawShader(ts / 1000);
   syncTick(ts);
+}
+
+// ---------- SVG in 3D ----------
+const MAX_SVGS = 6;
+let svgs = [];
+try { svgs = JSON.parse(localStorage.getItem('gbx-svgs') || '[]'); } catch {}
+function showSvgs() {
+  window.gbxSvgs = svgs;
+  window.svg3d?.render(svgs);
+  $('#svgClear').hidden = !svgs.length;
+}
+function storeSvgs() {
+  try { localStorage.setItem('gbx-svgs', JSON.stringify(svgs)); } catch { toast('SVG zu groß zum Merken – läuft nur bis zum Neuladen'); }
+  postSvgs();
+  showSvgs();
+}
+function postSvgs() {
+  if (SYNC.on) fetch('/svg', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(svgs) }).catch(() => {});
+}
+async function addSvgFiles(files) {
+  const list = [...files].filter(f => f.type === 'image/svg+xml' || /\.svg$/i.test(f.name));
+  if (!list.length) return toast('Nur SVG-Dateien bitte');
+  for (const f of list) {
+    const text = await f.text();
+    if (!/<svg[\s>]/i.test(text)) { toast(f.name + ' ist kein SVG'); continue; }
+    svgs.push(text);
+  }
+  svgs = svgs.slice(-MAX_SVGS);
+  storeSvgs();
+  toast(list.length === 1 ? list[0].name + ' ist jetzt 3D' : list.length + ' SVGs sind jetzt 3D');
+}
+function clearSvgs() { svgs = []; storeSvgs(); toast('3D-Objekte entfernt'); }
+function initDrop() {
+  const drop = $('#drop');
+  let depth = 0;
+  const hasFiles = e => [...(e.dataTransfer?.types || [])].includes('Files');
+  addEventListener('dragenter', e => { if (!hasFiles(e)) return; e.preventDefault(); depth++; drop.hidden = false; });
+  addEventListener('dragover', e => { if (hasFiles(e)) e.preventDefault(); });
+  addEventListener('dragleave', () => { if (--depth <= 0) { depth = 0; drop.hidden = true; } });
+  addEventListener('drop', e => {
+    if (!hasFiles(e)) return;
+    e.preventDefault(); depth = 0; drop.hidden = true;
+    addSvgFiles(e.dataTransfer.files);
+  });
+  const input = $('#svgFile');
+  $('#svgAdd').onclick = () => input.click();
+  input.onchange = () => { addSvgFiles(input.files); input.value = ''; };
+  $('#svgClear').onclick = clearSvgs;
+  showSvgs();
 }
 
 // ---------- Netzwerk: Zuschauer-Vollbild ----------
@@ -1251,7 +1309,7 @@ async function initSync() {
   if (!['localhost', '127.0.0.1', '[::1]'].includes(location.hostname)) return renderShare();
   try {
     const r = await fetch('/info', { cache: 'no-store' });
-    if (r.ok) { SYNC.urls = (await r.json()).urls; SYNC.on = true; }
+    if (r.ok) { SYNC.urls = (await r.json()).urls; SYNC.on = true; postSvgs(); }
   } catch {}
   renderShare();
 }
@@ -1284,6 +1342,7 @@ function initViewer() {
   const es = new EventSource('/events');
   es.onopen = () => { $('#vHint').textContent = 'Antippen für Vollbild'; };
   es.onerror = () => { $('#vHint').textContent = 'Verbindung zur Groovebox weg – verbinde neu …'; };
+  es.addEventListener('svg', e => { svgs = JSON.parse(e.data); showSvgs(); });
   es.onmessage = e => {
     const d = JSON.parse(e.data);
     level = d.lv; kickPulse = Math.max(kickPulse, d.k); S.shader = d.sh;
@@ -1342,6 +1401,7 @@ function init() {
   renderAll();
   navigator.keyboard?.getLayoutMap?.().then(m => { LM = m; relabel(); }).catch(() => {});
   initMidi();
+  initDrop();
   initSync();
   $('#share').onclick = () => { const p = $('#sharePanel'); p.hidden = !p.hidden; $('#share').classList.toggle('on', !p.hidden); };
   $('#fs').onclick = () => document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen?.().catch(() => {});
@@ -1349,6 +1409,124 @@ function init() {
   requestAnimationFrame(frame);
 }
 init();
+</script>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
+<script type="module">
+// 3D-Ebene: gedroppte SVGs werden extrudiert und tanzen zur Musik
+import * as THREE from 'three';
+import { SVGLoader } from 'three/addons/loaders/SVGLoader.js';
+
+const cv = document.getElementById('fx3d');
+const renderer = new THREE.WebGLRenderer({ canvas: cv, alpha: true, antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
+renderer.setClearColor(0x000000, 0);
+const scene = new THREE.Scene();
+const cam = new THREE.PerspectiveCamera(40, 1, .1, 100);
+cam.position.set(0, 0, 8);
+scene.add(new THREE.AmbientLight(0xffffff, .6));
+const key = new THREE.DirectionalLight(0xf6cf9f, 2.4); key.position.set(4, 3, 6); scene.add(key);
+const rim = new THREE.DirectionalLight(0x8fb4d9, 1.4); rim.position.set(-5, -2, 3); scene.add(rim);
+const group = new THREE.Group();
+scene.add(group);
+const loader = new SVGLoader();
+let mats = [];
+
+const color = (v, fallback) => {
+  if (!v || v === 'none' || v.startsWith('url')) return fallback;
+  try { return new THREE.Color().setStyle(v); } catch { return fallback; }
+};
+const mat = c => {
+  const m = new THREE.MeshStandardMaterial({ color: c, metalness: .35, roughness: .32, side: THREE.DoubleSide, emissive: c, emissiveIntensity: .06 });
+  mats.push(m);
+  return m;
+};
+
+function build(text) {
+  const data = loader.parse(text);
+  const accent = new THREE.Color(0xd9a066);
+  const parts = [];
+  const bounds = new THREE.Box2();
+  data.paths.forEach(p => {
+    const st = p.userData.style;
+    if (st.fill !== 'none') {
+      SVGLoader.createShapes(p).forEach(sh => {
+        sh.getPoints().forEach(pt => bounds.expandByPoint(pt));
+        parts.push({ shape: sh, c: color(st.fill, accent) });
+      });
+    }
+    if (st.stroke && st.stroke !== 'none') {
+      p.subPaths.forEach(sp => {
+        const pts = sp.getPoints();
+        pts.forEach(pt => bounds.expandByPoint(pt));
+        parts.push({ stroke: pts, st, c: color(st.stroke, accent) });
+      });
+    }
+  });
+  if (!parts.length || bounds.isEmpty()) return null;
+  const size = Math.max(bounds.max.x - bounds.min.x, bounds.max.y - bounds.min.y) || 1;
+  const depth = size * .14, bevel = size * .012;
+  const obj = new THREE.Group();
+  parts.forEach(pt => {
+    let g;
+    if (pt.shape) g = new THREE.ExtrudeGeometry(pt.shape, { depth, bevelEnabled: true, bevelThickness: bevel, bevelSize: bevel, bevelSegments: 2, curveSegments: 10 });
+    else { g = SVGLoader.pointsToStroke(pt.stroke, pt.st); if (!g) return; g.translate(0, 0, depth + bevel * 1.5); }
+    obj.add(new THREE.Mesh(g, mat(pt.c)));
+  });
+  const k = 2.2 / size;
+  obj.scale.set(k, -k, k);
+  const box = new THREE.Box3().setFromObject(obj);
+  const center = box.getCenter(new THREE.Vector3());
+  obj.position.sub(center);
+  const wrap = new THREE.Group();
+  wrap.add(obj);
+  return wrap;
+}
+
+function render(list) {
+  group.children.slice().forEach(w => {
+    group.remove(w);
+    w.traverse(o => { if (o.isMesh) { o.geometry.dispose(); o.material.dispose(); } });
+  });
+  mats = [];
+  const objs = (list || []).map(t => { try { return build(t); } catch (e) { console.warn('SVG nicht lesbar', e); return null; } }).filter(Boolean);
+  const n = objs.length;
+  objs.forEach((w, i) => {
+    const a = i / n * Math.PI * 2;
+    const r = n > 1 ? 2.4 : 0;
+    w.position.set(Math.cos(a) * r, Math.sin(a) * r * .55, Math.sin(a) * r * .4);
+    w.userData.base = n > 1 ? 1.1 / Math.sqrt(n) : 1;
+    w.userData.seed = i * 1.7;
+    group.add(w);
+  });
+  cv.style.display = n ? 'block' : 'none';
+}
+
+function resize() {
+  renderer.setSize(innerWidth, innerHeight, false);
+  cam.aspect = innerWidth / innerHeight;
+  cam.updateProjectionMatrix();
+}
+addEventListener('resize', resize);
+resize();
+
+function loop(now) {
+  requestAnimationFrame(loop);
+  if (!group.children.length) return;
+  const [lv, kick] = window.gbxFx || [0, 0], t = now / 1000;
+  group.rotation.y += .003 + lv * .025;
+  group.children.forEach(w => {
+    const s = w.userData.seed;
+    w.rotation.y = Math.sin(t * .7 + s) * .6;
+    w.rotation.x = Math.sin(t * .45 + s * 1.3) * .3;
+    w.scale.setScalar(w.userData.base * (1 + kick * .2 + lv * .15));
+  });
+  mats.forEach(m => { m.emissiveIntensity = .06 + kick * .55; });
+  renderer.render(scene, cam);
+}
+requestAnimationFrame(loop);
+
+window.svg3d = { render };
+render(window.gbxSvgs || []);
 </script>
 </body>
 </html>
